@@ -1,0 +1,213 @@
+---
+editor_options:
+  chunk_output_type: console
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Introduction
+
+This is the original dataset : "http://groupware.les.inf.puc-rio.br/static/WLE/WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv.
+
+The course instructors have provided different datasets : "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv" and "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv". For the sake of completeness, we examine differences between both original and instructors' datasets.
+
+The original dataset is used in this article : "http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf".
+
+To summarize the article (and understand the dataset), 6 participants were asked to perform 5 ways of doing a dumbbell bicep curl, with 10 repetitions per way. Out of the 5 ways, method A is correct while method B to E represent common mistakes.
+
+The movements are recorded over 4 sensors mounted at the participants' belts, arms, dumbbells and forearms. Each of these sensors records 3 axes of 4 measurement types : Euler angles (roll, pitch and yaw), accelerometer, gyroscope (orientation to earth's gravitational centre) and magnetometer (orientation to earth's magnetic north).
+
+So per row (per unit time), we should see 48 columns (4 sensor positions x 3 axes x 4 measurement types) of raw data. The rows are sliced into 1-second intervals for calculating 8 statistical features : mean, variance, standard deviation, maximum, minimum, range, kurtosis and skew. These statistical features are only present in rows representing end of each 1-second interval.
+
+# Downloading & Inspecting & Cleaning The Datasets
+
+```{r, "Downloading & Inspecting The Datasets"}
+training.URL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing.URL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+original.URL <- "http://groupware.les.inf.puc-rio.br/static/WLE/WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv"
+
+# download.file(training.URL, "./training.csv")
+# download.file(testing.URL, "./testing.csv")
+# download.file(original.URL, "./original.csv")
+
+training <- read.csv("./training.csv", na.strings=c("#DIV/0!","NA",""))
+testing <- read.csv("./testing.csv", na.strings=c("#DIV/0!","NA",""))
+original <- read.csv("./original.csv", na.strings=c("#DIV/0!","NA",""))
+
+# str(training); head(training); tail(training)
+# str(testing); head(testing); tail(testing)
+# str(original); head(original); tail(original)
+```
+
+We make 5 observations about the datasets :
+
+1. The instructors' dataset appears to have taken only half of the original dataset.
+2. The columns for statistical features are only filled for end of each 1-second interval.
+3. The statistical features have many calculation and label errors e.g. values for **kurtosis_pitch_belt** are actually for **kurtosis_roll_belt** and **skewness_roll_belt.1** should be labelled **skewness_pitch_belt**.
+4. The instructors did not recalculate statistical features upon removing half the data, thus statistical features no longer reflect structure of remaining data.
+5. Each value in **raw_timestamp_part_1** represents a 1-second interval while **raw_timestamp_part_2** represents time splits within one interval.
+
+As such, we make 3 recommendations about cleaning the datasets :
+
+1. To remove all columns for statistical features (and maybe re-calculate).
+2. To remove other columns with no information value, namely **cvtd_timestamp**, **new_window** and **num_window**.
+3. To sort rows by **user_name**, **raw_timestamp_part_1** and **raw_timestamp_part_2** in that order for clarity.
+
+```{r, "Cleaning The Datasets"}
+training$X <- NULL
+testing$X <- NULL
+removal.terms <- c("kurtosis","skewness","max_","min_","amplitude",
+                   "var_","avg_","stddev","cvtd_","new_window","num_window")
+removal.list <- unique(unlist(sapply(removal.terms,grep,names(training))))
+training <- training[,-removal.list]
+testing <- testing[,-removal.list]
+original <- original[,-removal.list]
+
+training <- training[with(training,order(user_name,
+                                   raw_timestamp_part_1,
+                                   raw_timestamp_part_2)),]
+original <- original[with(original,order(user_name,
+                                         raw_timestamp_part_1,
+                                         raw_timestamp_part_2)),]
+```
+
+After sorting rows according to user and time, it is clear that each user was asked to perform repetitions of "classe" type A to E in an alphabetical order. Charts in our exploratory data analysis should reflect that.
+
+# Exploratory Data Analysis
+
+We will only sample 4 charts from instructors' dataset and another similar 4 charts from original dataset. This will allow us to see how the raw data looks like as a time series chart and also let us compare both datasets against each other.
+
+```{r, "Comparing Instructors' & Original Datasets"}
+par(mfrow=c(4,2), mar=c(0,0,1.5,0), oma=c(0,0,0,0))
+
+users <- c("adelmo","carlitos","charles","eurico","jeremy","pedro")
+euler.belt <- c("roll_belt","pitch_belt","yaw_belt")
+gyros.arm <- c("gyros_arm_x","gyros_arm_y","gyros_arm_z")
+accel.dumbbell <- c("accel_dumbbell_x","accel_dumbbell_y","accel_dumbbell_z")
+magnet.forearm <- c("magnet_forearm_x","magnet_forearm_y","magnet_forearm_z")
+sample.features <- list(euler.belt=euler.belt,
+                        gyros.arm=gyros.arm,
+                        accel.dumbbell=accel.dumbbell,
+                        magnet.forearm=magnet.forearm)
+
+for (i in 1:4) {
+    ss <- sample.features[i]
+    tt <- training[training$user_name==users[i], unlist(ss)]
+    oo <- original[original$user_name==users[i], unlist(ss)]
+    matplot(tt, type="l", xaxt="n", yaxt="n")
+    mtext(paste("instructor data =", users[i], ylab=names(ss)), side=3)
+    matplot(oo, type="l", xaxt="n", yaxt="n")
+    mtext(paste("original data =", users[i], ylab=names(ss)), side=3)
+}
+```
+
+We make 3 observations about the datasets :
+
+1. Both datasets produce charts looking similar, despite instructors  having removed half the data. They likely used an algorithm to reduce rows while retaining similar variation.
+2. For most of the charts, we can see 5 different cross-sections that likely pertain to 5 different ways of doing bicep curls over time.
+3. Each cross-section contains 10 pairs of up-and-down spikes which likely represent repetitions of bicep curls.
+
+As we surveyed the online landscape on this research topic, we also chanced upon another article that expands research on the same dataset : "https://socialnui.unimelb.edu.au/publications/2016-SocialNUI-Kowsar.pdf".
+
+The interesting observation from this other article's exploratory data analysis is that 2 of the participants did not do "classe A" of bicep curl correctly i.e. they moved their hips during the exercise and this can be seen from charted data.
+
+```{r, "Checking Participants' Classe A Bicep Curls"}
+par(mfrow=c(3,2), mar=c(0,0,1.5,0), oma=c(0,0,0,0))
+
+users <- c("adelmo","carlitos","charles","eurico","jeremy","pedro")
+accel.belt <- c("accel_belt_x","accel_belt_y","accel_belt_z")
+
+oo <- original[original$classe=="A", accel.belt]
+maxi <- max(oo)
+mini <- min(oo)
+
+for (i in 1:6) {
+    oo <- original[original$user_name==users[i] & original$classe=="A",
+                   accel.belt]
+    matplot(oo, type="l", xaxt="n", yaxt="n", ylim=c(mini,maxi))
+    mtext(paste("classe A ~", users[i], "accel.belt"), side=3)
+}
+```
+
+We do find proof that Jeremy (and perhaps Charles) may have been moving their hips slightly while doing classe A bicep curls, but we don't think that the extent warrants removing their data from the set.
+
+# Pre-Processing Of Predictors
+
+There are 3 things to consider under this section, namely do we
+
+1. (re-calculate) and include statistical features or just stick with raw data ?
+2. reduce white noise with techniques such as Kalman filter ?
+3. reduce dimensionality (removing irrelevant or redundant features) with techniques such as principal component analysis (PCA) ?
+
+Regarding (1), the test data set has null values for all statistical features so including any statistical features in our training data set would be pointless. However it is worth noting that in the original article, the authors used a correlation-based feature selection (CFS) algorithm ("https://www.cs.waikato.ac.nz/~mhall/thesis.pdf") and found 17 statistical features to be more relevant.
+
+Regarding (2), article "https://socialnui.unimelb.edu.au/publications/2016-SocialNUI-Kowsar.pdf" states that any motion sensor will come with white noise and any successful analysis of the data must first remove this white noise. The authors chose to use a density-based Kalman filter, however this is beyond the syllabus of this project.
+
+Regarding (3), we are left with 52 variables and suspect that some could be redundant e.g. changes in **gyros_forearm_x** may be making similar measurements to changes in **magnet_forearm_x** i.e. changes in absolute positioning relative to Earth's gravitational centre and magnetic north respectively. While many models (such as classification trees and random forests) have built-in feature selection, it could be meaningful to attempt dimensionality reduction with PCA.
+
+# Model Selection & Parameters Tuning & Cross-Validation Methods
+
+For the purpose of exploration (and learning more), we will try a variety of pre-processing options, models, tuning customizations and cross-validation methods. To speed things up, we will utilize parallel processing for suitable models. To get honest estimates of accuracy, all data transformations will be included within the cross-validation loop. This is especially true for feature selection and pre-processing e.g. imputation and PCA.
+
+```{r, "Running Various Models To Compare Accuracies"}
+training[,c("user_name","raw_timestamp_part_1","raw_timestamp_part_2")] <- NULL
+testing[,c("user_name","raw_timestamp_part_1","raw_timestamp_part_2")] <- NULL
+original[,c("user_name","raw_timestamp_part_1","raw_timestamp_part_2")] <- NULL
+
+library(caret)
+library(parallel)
+library(doParallel)
+
+start.time <- Sys.time()
+
+# model-based quadratic discriminant analysis
+trControl <- trainControl(method="LOOCV")
+train(classe~., data=training, method="qda", trControl=trControl)
+train(classe~., data=training, method="qda", trControl=trControl,
+      preProcess="pca")
+
+# trees, parameters = splits, depth, cost-complexity
+trControl <- trainControl(method="repeatedcv", number=5, repeats=5)
+train(classe~., data=training, method="rpart", tuneLength=5,
+      trControl=trControl)
+
+cluster <- makeCluster(detectCores()-1)
+registerDoParallel(cluster)
+
+  # bagging, parameters = no. of bootstraps
+  train(classe~., data=training, method="treebag")
+
+  ## random forests, parameters = "nodesize", "maxnodes", "mtry", "max_depth"
+  trControl <- trainControl(method="oob")
+  mf.rf <- train(classe~., data=training, method="rf", tuneLength=5,
+                 trControl=trControl, ntree=250); mf.rf
+
+  ## boosting, parameters = no. of iterative steps, "interaction.depth", "n.trees"
+  trControl <- trainControl(method="cv", number=5)
+  mf.boost <- train(classe~., data=training, method="gbm", tuneLength=5,
+                    trControl=trControl, verbose=FALSE); mf.boost
+
+  ## svm, parameters = cost, polynomial degree, radial basis
+  trControl <- trainControl(method="LGOCV", number=5, p=0.65)
+  mf.svm <- train(classe~., data=training, method="svmRadial", tuneLength=9,
+                  trControl=trControl); mf.svm
+
+stopCluster(cluster)
+registerDoSEQ()
+
+end.time <- Sys.time()
+end.time - start.time
+```
+
+Based on cross-validated accuracies, random forests, boosting and support vector machines have the best results. Dimensionality reduction using PCA is not fruitful as it reduces accuracies across all models in our initial trials (not documented here except for quadratic discriminant analysis).
+
+# Making Predictions
+
+```{r, "Making Predictions"}
+predict(mf.rf, testing)
+predict(mf.boost, testing)
+predict(mf.svm, testing)
+```
+
+It is interesting to note that the 20 predictions on test dataset from all 3 models are identical. In that case, ensembling (stacking the 3 models) would not make any difference here.
