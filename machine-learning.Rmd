@@ -27,13 +27,13 @@ training.URL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-trainin
 testing.URL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
 original.URL <- "http://groupware.les.inf.puc-rio.br/static/WLE/WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv"
 
-# download.file(training.URL, "./training.csv")
-# download.file(testing.URL, "./testing.csv")
-# download.file(original.URL, "./original.csv")
+# download.file(training.URL, "C:/Users/angdy/Desktop/training.csv")
+# download.file(testing.URL, "C:/Users/angdy/Desktop/testing.csv")
+# download.file(original.URL, "C:/Users/angdy/Desktop/original.csv")
 
-training <- read.csv("./training.csv", na.strings=c("#DIV/0!","NA",""))
-testing <- read.csv("./testing.csv", na.strings=c("#DIV/0!","NA",""))
-original <- read.csv("./original.csv", na.strings=c("#DIV/0!","NA",""))
+training <- read.csv("C:/Users/angdy/Desktop/training.csv", na.strings=c("#DIV/0!","NA",""))
+testing <- read.csv("C:/Users/angdy/Desktop/testing.csv", na.strings=c("#DIV/0!","NA",""))
+original <- read.csv("C:/Users/angdy/Desktop/original.csv", na.strings=c("#DIV/0!","NA",""))
 
 # str(training); head(training); tail(training)
 # str(testing); head(testing); tail(testing)
@@ -150,6 +150,20 @@ Regarding (3), we are left with 52 variables and suspect that some could be redu
 
 For the purpose of exploration (and learning more), we will try a variety of pre-processing options, models, tuning customizations and cross-validation methods. To speed things up, we will utilize parallel processing for suitable models. To get honest estimates of accuracy, all data transformations will be included within the cross-validation loop. This is especially true for feature selection and pre-processing e.g. imputation and PCA.
 
+# How We Build Each Model , How We Used Cross Validation
+
+For quadratic discriminant analysis, we will run it against both raw data and principal components. This model is computationally less intensive and is therefore suitable for a computationally more intensive method of cross-validation such as "leave one out" i.e. we divide the data set into two parts. In one part we have a single observation, which is our test data and in the other part, we have all the other observations from the dataset forming our training data. This process is iterated for every data point and generates n times accuracy numbers which we will average.
+
+Classification trees does tuning over a cost-complexity measure. We set tuning length to 5 (instead of default 3), to try a greater variety of values for this measure. We will use "repeated k-fold" cross-validation as this model is also computationally less intensive. Statistically speaking, a problem in using k-fold is that the k repetitions are not independent of one another, meaning that your estimator is biased. Making repeated k-fold may lower this bias.
+
+Bagging (or bootstrap aggregating) will be run and cross-validated over the default of 25 bootstrap samples. Each sample will be taken with replacement from the training data set. This attempts to simulate variability in the data but it also underestimates the error.
+
+For random forests, the default is that 500 bootstrapped trees will be grown and tuned over 3 values of "mtry" (which refers to number of variables sampled at each node). To reduce computation time, we reduce the number of trees to 250 but increased tuning length to 5 instead. The "out-of-bag" method will also be used to estimate error rate. This method compares prediction values for each tree grown to values unused in that tree's bootstrap to get an error rate for aggregation across all trees.
+
+Boosting is very computationally intensive and we will just use 5-fold cross-validation for it. To increase its accuracy, we will increase tuning length to 5 i.e. overall, 5 interaction depths for 5 differing numbers of trees on 5 repeated folds.
+
+For support vector machines, there are various versions i.e. linear, polynomial and radial. We will choose the radial version and use "leave group out" cross-validation with number=5 and p=0.65. What this means is that a partial sample will be taken without replacement from the training dataset, leaving 35% of data behind. Predictive values from the partial sample will be validated against the 35% remaining and this whole process will be repeated 5 times.
+
 ```{r, "Running Various Models To Compare Accuracies"}
 training[,c("user_name","raw_timestamp_part_1","raw_timestamp_part_2")] <- NULL
 testing[,c("user_name","raw_timestamp_part_1","raw_timestamp_part_2")] <- NULL
@@ -180,16 +194,19 @@ registerDoParallel(cluster)
 
   ## random forests, parameters = "nodesize", "maxnodes", "mtry", "max_depth"
   trControl <- trainControl(method="oob")
+  set.seed(123)
   mf.rf <- train(classe~., data=training, method="rf", tuneLength=5,
                  trControl=trControl, ntree=250); mf.rf
 
   ## boosting, parameters = no. of iterative steps, "interaction.depth", "n.trees"
   trControl <- trainControl(method="cv", number=5)
+  set.seed(123)
   mf.boost <- train(classe~., data=training, method="gbm", tuneLength=5,
                     trControl=trControl, verbose=FALSE); mf.boost
 
   ## svm, parameters = cost, polynomial degree, radial basis
   trControl <- trainControl(method="LGOCV", number=5, p=0.65)
+  set.seed(123)
   mf.svm <- train(classe~., data=training, method="svmRadial", tuneLength=9,
                   trControl=trControl); mf.svm
 
@@ -200,7 +217,11 @@ end.time <- Sys.time()
 end.time - start.time
 ```
 
-Based on cross-validated accuracies, random forests, boosting and support vector machines have the best results. Dimensionality reduction using PCA is not fruitful as it reduces accuracies across all models in our initial trials (not documented here except for quadratic discriminant analysis).
+# What We Think Expected Out-Of-Sample Error Rates Are
+
+Based on cross-validated accuracies, random forests, boosting and support vector machines have the best results. We expect out-of-sample accuracies to be 0.9965, 0.9905 and 0.9915 respectively for the above top 3 models.
+
+Dimensionality reduction using PCA is not fruitful as it reduces accuracies across all models in our initial trials (not documented here except for quadratic discriminant analysis).
 
 # Making Predictions
 
